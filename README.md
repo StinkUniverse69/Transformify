@@ -20,7 +20,7 @@ Simply select the instances you want to transform and then press the Transformif
 #### Http Permission "https://raw.githubusercontent.com/"
 Roblox does not allow plugin developers to access reflection classes easily, that is what classes have what Properties and such. This is why _Transformify_ uses the [Roblox Client Tracker](https://github.com/MaximumADHD/Roblox-Client-Tracker) to get this information. It does this by reading [Roblox-Client-Tracker/roblox/Mini-API-Dump.json](https://raw.githubusercontent.com/MaximumADHD/Roblox-Client-Tracker/roblox/Mini-API-Dump.json)
 
-An API dump is also included, so you can disable this permission with minimal effect. But will not be updated as frequently as the Roblox Client Tracker.
+An API dump is also included, so you can disable this permission with minimal effect. But it will not be updated as frequently as the Roblox Client Tracker, so you wouldn't always have the newest available classes.
 
 ---
 
