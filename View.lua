@@ -1,3 +1,6 @@
+local this = script.Parent
+local plugin = this.Main.GetPluginManager:Invoke()
+
 local InputService = game:GetService("UserInputService")
 
 export type View = {

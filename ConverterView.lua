@@ -2,11 +2,15 @@ local this = script.Parent
 local main = this.Main
 local plugin = main.GetPluginManager:Invoke()
 
+-- for some reason this doesn't exist as a method
+local isChangeHistoryServiceEnabled = game:GetService("RunService"):IsEdit()
+
 -- This script only deals with the Plugin UI 
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
 local Selection = game:GetService("Selection")
 local SELECTION_CONNECTION : RBXScriptConnection;
 
+local HISTORY_RECORDING;
 
 local View = require(this.View)
 local Convert = require(this.Convert)
@@ -21,12 +25,13 @@ local TEXTBOX_FRAME = Converter.container.Content.TextBoxOuter.TextBoxInner
 local INPUT = TEXTBOX_FRAME.Text.Input
 local RECOMMENDATION = TEXTBOX_FRAME.Text.Recommendation
 
+-- set another recommendation as active, by changing Recommend.index
 local function setByIndexRecommendation()
 	local recommended = Recommend.get() -- by index (Recommend.index)
 
 	RECOMMENDATION.Text = recommended
 	INPUT.Text = recommended:sub(1,#INPUT.Text) -- if there is only one option left this will prevent you from typing anything else (it replaces what you wrote)
-	
+
 	local icon; 
 	xpcall(function(...) 
 		icon = game.StudioService:GetClassIcon(recommended)
@@ -36,12 +41,14 @@ local function setByIndexRecommendation()
 	TEXTBOX_FRAME.Image.ImageLabel.Image = icon.Image:gsub("/Dark/", "/Light/")
 end
 
+-- set #1 recommendation as active
 local function setPreferredRecommendation()
 	Recommend.update(INPUT.Text, Selection:Get())
 	Recommend.index = 1
 	setByIndexRecommendation()
 end
 
+-- when view is opened 
 Converter.open = function (self)
 	plugin:Activate(true)
 	INPUT:CaptureFocus()
@@ -74,8 +81,18 @@ Converter:registerTextBox( INPUT,
 )
 
 Converter:registerTopBarButtons(
-	function (self) -- close
-		SELECTION_CONNECTION:Disconnect()
+	function (self, recordingSucess) -- close
+		
+		-- finish recording
+		if HISTORY_RECORDING then
+			local FinishMethod = Enum.FinishRecordingOperation
+			ChangeHistoryService:FinishRecording(HISTORY_RECORDING, (recordingSucess and FinishMethod.Commit) or FinishMethod.Cancel)
+			HISTORY_RECORDING = nil
+		end
+		
+		if SELECTION_CONNECTION then
+			SELECTION_CONNECTION:Disconnect()
+		end
 		plugin:Deactivate()
 		INPUT:ReleaseFocus()
 		self:visible(false)
@@ -83,34 +100,42 @@ Converter:registerTopBarButtons(
 	end,
 
 	function (self) -- more 
-		-- TODO
+		
 	end
 
 )
 
-Converter:registerButton(TEXTBOX_FRAME.Submit, function (self)
-	local class = RECOMMENDATION.Text
-	if not class or #class < 1 then return end
+-- when ChangeHistoryService is disabled
+local function startConversion(class)	
+	local success = xpcall(function(...)
+		Selection:Set( Convert.run(Selection:Get(), class) )
+	end, warn)
+	return success	
+end
 
-	local recording = ChangeHistoryService:TryBeginRecording(string.format("Convert selected instances to %s", class))
-	local revert_recording = function () ChangeHistoryService:FinishRecording(recording, Enum.FinishRecordingOperation.Cancel) end
-
-	local FinishMethod = Enum.FinishRecordingOperation
-
-	if not recording then 
+-- when ChangeHistoryService is enabled
+local function startSafeConversion(class)
+	HISTORY_RECORDING = nil
+	HISTORY_RECORDING = ChangeHistoryService:TryBeginRecording(string.format("Convert selected instances to %s", class))
+	
+	if not HISTORY_RECORDING then 
 		warn(PLUGIN_NAME .. ": Couldn't start recording history changes. Aborting conversion. Try updating the plugin and/or restarting studio."); 
-		ChangeHistoryService:FinishRecording(recording, FinishMethod.Cancel)
 		script.ConversionFinishedEvent:Fire()
 		return 
 	end 
 
-	local success = xpcall(function(...)
-		Selection:Set( Convert.run(Selection:Get(), class) )
-	end, warn)
+	return startConversion(class)
+end
 
-	ChangeHistoryService:FinishRecording(recording, (success and FinishMethod.Commit) or FinishMethod.Cancel)	
+Converter:registerButton(TEXTBOX_FRAME.Submit, function (self)
+	local class = RECOMMENDATION.Text
+	if not class or #class < 1 then return end
+	
+	local success = 
+		if isChangeHistoryServiceEnabled then startSafeConversion(class)
+		else startConversion(class)
 
-	self:close()
+	self:close(success)
 	script.ConversionFinishedEvent:Fire()
 end)
 

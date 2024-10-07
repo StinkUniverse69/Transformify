@@ -1,4 +1,7 @@
-if not game:GetService("RunService"):IsEdit() then return end
+local plugin : Plugin = plugin
+
+-- can be used in runmode etc as well
+if not game:GetService("RunService"):IsServer() then return end
 
 local this = script.Parent
 local PLUGIN_NAME = this.Name
@@ -19,12 +22,19 @@ local prompt = require(this.MarketPlaceView)
 plugin:CreateToolbar(PLUGIN_NAME):CreateButton(
 	"Instance Converter", 
 	"Convert class of instances to another", 
-	"rbxassetid://92509631227825"
+	"rbxthumb://type=Asset&id=83506458688166&w=150&h=150"
 ).Click:Connect(function () 
 	if converter:isVisible() then
-		converter:close()
 		prompt:close()
+		converter:close()
 	else
 		converter:open()
 	end
 end)
+
+-- allow graceful reloading without upsetting the history service sometimes 
+plugin.Unloading:Connect(function()
+	prompt:close()
+	converter:close()
+end)
+

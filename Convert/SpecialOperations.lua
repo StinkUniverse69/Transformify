@@ -1,5 +1,21 @@
--- used by multiple
+local Reflection = require(script.Parent.Parent.Reflection)
 local InsertService = game:GetService("InsertService")
+
+-- add an attribute that can be read and removed by another special operation step afterwards
+local function pushProperty(new_instance : Instance, property_name, property_value)
+	new_instance:SetAttribute(string.format("__Transformify_%s", property_name), property_value)
+end
+
+-- read and removed an attribute that was added by another special operation step before
+local function popProperty(new_instance : Instance, property_name)
+	local attribute_name = string.format("__Transformify_%s", property_name)
+	local property_value = new_instance:GetAttribute(attribute_name)
+	
+	new_instance:SetAttribute(attribute_name) --reset in case sth was there
+	return property_value 
+end
+
+-- use normal ids to figure out the size of a face of a block
 local face_to_2dSize = {
 	[Enum.NormalId.Top] = function (size : Vector3) return size.X, size.Z end,
 	[Enum.NormalId.Bottom] = function (size : Vector3) return size.X, size.Z end,
@@ -9,6 +25,7 @@ local face_to_2dSize = {
 	[Enum.NormalId.Right] = function (size : Vector3) return size.Z, size.Y end,
 }
 
+-- conversion of a shapetype/meshtype into a mesh id
 local shapeToMeshId : (shape : Enum.PartType | Enum.MeshType) -> string; 
 do
 	local unified_shape_id = {
@@ -17,6 +34,7 @@ do
 		
 		[Enum.PartType.Block]			= 1,
 		[Enum.MeshType.Brick]			= 1,
+		[Enum.MeshType.Torso]			= 1,
 		
 		[Enum.PartType.Cylinder]		= 2,
 		[Enum.MeshType.Cylinder]		= 2,
@@ -28,11 +46,6 @@ do
 		[Enum.MeshType.CornerWedge]		= 4,
 		
 		[Enum.MeshType.Head]			= 5,
-		[Enum.MeshType.Torso]			= 6,
-		[Enum.MeshType.Prism]			= 7,
-		[Enum.MeshType.Pyramid]			= 8,
-		[Enum.MeshType.ParallelRamp]	= 9,
-		[Enum.MeshType.RightAngleRamp]	= 10,
 	}
 	
 	local unified_to_meshid = {
@@ -40,11 +53,16 @@ do
 		[1]	= 15636311856,
 		[2]	= 9095618661,
 		[3]	= 4729450112,
-		[4]	= 699163794,
+		[4]	= 76890435647894,
+		[5] = 14448893416,
+		
 	}
+	
 	shapeToMeshId = function (shape)
-		print(shape)
-		return string.format("rbxassetid://%d", unified_to_meshid[unified_shape_id[shape]])
+		local unifiedShapeType = unified_shape_id[shape]
+		return 
+			unifiedShapeType and 
+			string.format("rbxassetid://%d", unified_to_meshid[unifiedShapeType])
 	end
 end
 
@@ -53,27 +71,27 @@ end
 	from : Class name of the instance that you're converting
 	to   : Class name you want to convert it to
 	at
-		- start  : Before any properties have been set.
-		- finish : After properties have been set, but before parent is set.
-		- final  : After parent has been set. No returns accepted.
+		- changeHierarchy : before the hierarchy (parents/children) has been processed. No returns accepted. No new instance.
+		- replaceInstance  : before any properties have been set.
+		- editProperties : After properties have been set, but changeHierarchy parent is set.
+		- editParent  : After parent has been set. No returns accepted.
 	
 	run : 
 	A function that allows you to control the conversion process. 
-	
 	
 	"run" gets executed when the plugin loads all it's data, so you can save 
 	local variables your conversion needs in a close scope, instead of in 
 	the file itself.
 	
 	It returns a function that can access and change the to-be-converted (@instance) 
-	and the to-be-returned (@new_instance) instance. 
+	and the to-be-returned (@new_instance) instance.
 	
 	Returns of this function are used to replace the internally used instances,
 	meaning you can return a completly different instance and the script will
-	continue working with that. 
+	continue working with that.
 	
 	However be aware of when "at" you let your operation execute. Replacing 
-	an instance at final isn't prossible and at finish will discard all 
+	an instance at editParent isn't prossible and at editProperties will discard all 
 	automatically transfered properties.
 	
 	Class hierarchy will be ignored for the execution of these operations. I.e. an 
@@ -82,23 +100,27 @@ end
 export type Operation = {
 	from : string,
 	to : string,
-	at :   "final" | "finish" | "start",
+	at :   "changeHierarchy"| "replaceInstance" | "editProperties" | "editParent",
 	run : () -> ( (instance: Instance, new_instance: Instance) -> (Instance, Instance) )
 }
 
 local SpecialOperations : {Operation}  = {
-
+	
+	-------------------------------------------------------------------------------
+	
+	-- note: for some reason special mesh "Head" turns into a cylinder when it gets to long, I'm not gonna account for that tho cause that doesn't feel like it should be the intended outcome
 	{
-		from="Part",to="MeshPart",at="start",
-		run = function ()			
+		from="Part",to="MeshPart",at="replaceInstance",
+		run = function ()
 			return function (instance : Part, new_instance : MeshPart)
 				local special_mesh = instance:FindFirstChildWhichIsA("SpecialMesh")
 				
 				local mesh_id = 
-					special_mesh and ( 
-						shapeToMeshId(special_mesh.MeshType)
+					if special_mesh then
+						shapeToMeshId(special_mesh.MeshType) 
 						or special_mesh.MeshId
-					) or shapeToMeshId(instance.Shape)
+					else 
+						shapeToMeshId(instance.Shape)
 				
 				local mesh = InsertService:CreateMeshPartAsync(
 					mesh_id,
@@ -106,26 +128,52 @@ local SpecialOperations : {Operation}  = {
 					Enum.RenderFidelity.Automatic
 				)
 				
+				if special_mesh then
+					
+					if special_mesh.MeshType == Enum.MeshType.FileMesh then
+						pushProperty(mesh, "size", mesh.MeshSize*special_mesh.Scale)
+					else
+						pushProperty(mesh, "size", instance.Size*special_mesh.Scale)
+					end
+					
+					if 
+						special_mesh.TextureId ~= "" and
+						special_mesh.VertexColor ~= Vector3.one 
+					then
+						local surface_appearance = Instance.new("SurfaceAppearance")
+						surface_appearance.ColorMap = special_mesh.TextureId
+						surface_appearance.Color = Color3.new(
+							special_mesh.VertexColor.X,
+							special_mesh.VertexColor.Y,
+							special_mesh.VertexColor.Z
+						)
+						surface_appearance.Parent = mesh
+					else
+						mesh.TextureID = special_mesh.TextureId
+					end
+					special_mesh:Remove()
+				else
+					pushProperty(mesh, "size", mesh.Size)
+				end
+				
 				return instance, mesh
 			end
 		end,
 	},
-	
 	{
-		from="Part",to="MeshPart",at="finish",
+		from="Part",to="MeshPart",at="editProperties",
 		run = function ()			
-			return function (instance : Part, new_instance : MeshPart)
-				local special_mesh = instance:FindFirstChildWhichIsA("SpecialMesh")
-				if special_mesh then new_instance.Size *= special_mesh.Scale end
-				return 
-					instance, 
-					new_instance
+			return function (old : Part, new : MeshPart)
+				new.Size = popProperty(new, "size")
+				return old, new
 			end
 		end,
 	},
 	
+	-------------------------------------------------------------------------------
+	
 	{
-		from="MeshPart", to="Part", at="final",
+		from="MeshPart", to="Part", at="replaceInstance",
 		run = function ()
 			local meshid_to_shape = {
 				[6914995538] 	= Enum.PartType.Ball,
@@ -136,24 +184,70 @@ local SpecialOperations : {Operation}  = {
 			}
 			
 			return function (instance : MeshPart, new_instance : Part)
+				local surface_appearance = instance:FindFirstChildWhichIsA("SurfaceAppearance")
+				
 				local id = tonumber(instance.MeshId:match("%d+"))
 				local shape = meshid_to_shape[id]
+				pushProperty(new_instance, "shape", shape)
+				
+				local hasColorMap = surface_appearance and surface_appearance.ColorMap ~= ""
 				
 				if not shape then 	
 					local special_mesh = Instance.new("SpecialMesh")
 					special_mesh.MeshId = instance.MeshId
-					special_mesh.TextureId = instance.TextureID
+					special_mesh.TextureId = hasColorMap and surface_appearance.ColorMap or instance.TextureID
+					if surface_appearance and surface_appearance.Color then 
+						special_mesh.VertexColor = Vector3.new(
+							surface_appearance.Color.R,
+							surface_appearance.Color.G,
+							surface_appearance.Color.B
+						) 
+					end
 					special_mesh.Scale = instance.Size/instance.MeshSize
 					special_mesh.Parent = new_instance
 				else
+					
+					if hasColorMap then
+						local textures = {}
+						for _, face in Enum.NormalId:GetEnumItems() do
+							local texture = Instance.new("Texture")
+							texture.Texture = surface_appearance.ColorMap
+							texture.Parent = new_instance
+							table.insert(textures, texture)
+						end
+						if surface_appearance.Color then
+							for _, texture in textures do
+								texture.Color3 = surface_appearance.Color
+							end
+						end
+					end
+					
+				end
+				
+				if surface_appearance then surface_appearance:Remove() end
+				
+				return instance, new_instance
+				
+			end
+		end,
+	},
+	
+	{
+		from="MeshPart", to="Part", at="editParent",
+		run = function ()
+			return function (instance : MeshPart, new_instance : Part)
+				local shape = popProperty(new_instance, "shape")
+				if shape then 	
 					new_instance.Shape = shape
 				end
 			end
 		end,
 	},
+	
+	-------------------------------------------------------------------------------
 
 	{
-		from="Decal", to="Texture", at="finish",
+		from="Decal", to="Texture", at="editProperties",
 		run = function ()
 			return function(instance: Decal, new_instance: Texture) 
 				local parent = instance.Parent
@@ -168,9 +262,11 @@ local SpecialOperations : {Operation}  = {
 			end
 		end
 	},
+	
+	-------------------------------------------------------------------------------
 
 	{
-		from="Attachment", to="Part", at="finish",
+		from="Attachment", to="Part", at="editProperties",
 		run = function ()
 			return function(old: Attachment, new: Part) 
 				new.Position = old.WorldPosition
@@ -189,8 +285,10 @@ local SpecialOperations : {Operation}  = {
 		end
 	},
 	
+	-------------------------------------------------------------------------------
+	
 	{
-		from="Part", to="Attachment", at="finish",
+		from="Part", to="Attachment", at="editProperties",
 		run = function ()
 			return function(old: Attachment, new: Part)
 				if not old.Parent:IsA("BasePart") then 
@@ -202,8 +300,10 @@ local SpecialOperations : {Operation}  = {
 		end
 	},
 	
+	-------------------------------------------------------------------------------
+	
 	{
-		from="MeshPart", to="Attachment", at="finish",
+		from="MeshPart", to="Attachment", at="editProperties",
 		run = function ()
 			return function(old: Attachment, new: Part)
 				if not old.Parent:IsA("BasePart") then 
@@ -215,9 +315,11 @@ local SpecialOperations : {Operation}  = {
 			end
 		end
 	},
+	
+	-------------------------------------------------------------------------------
 
 	{
-		from="Attachment", to="MeshPart", at="start",
+		from="Attachment", to="MeshPart", at="replaceInstance",
 		run = function ()
 			return function(old: Attachment) 
 				return 
@@ -232,7 +334,7 @@ local SpecialOperations : {Operation}  = {
 	},
 
 	{
-		from="Attachment", to="MeshPart", at="finish",
+		from="Attachment", to="MeshPart", at="editProperties",
 		run = function ()
 			return function(old: Attachment, new: Part)
 				new.Position = old.WorldPosition
@@ -250,11 +352,13 @@ local SpecialOperations : {Operation}  = {
 		end
 	},
 	
+	-------------------------------------------------------------------------------
 	
+	-- this is more a tech demo of what is possible using special operations
 	-- only works for (decals on) block parts atm
 	-- not possible for (decals on) meshparts without using editable meshes
 	{
-		from="Decal", to="MeshPart",at="start",
+		from="Decal", to="MeshPart",at="replaceInstance",
 		run = function ()
 			local d90, d180 = math.rad(90), math.rad(180)
 			local face_to_3d = {
@@ -320,7 +424,7 @@ local SpecialOperations : {Operation}  = {
 	},
 	
 	{
-		from="Decal", to="MeshPart", at="final",
+		from="Decal", to="MeshPart", at="editParent",
 		run = function ()
 			return function (instance : Decal, new_instance : MeshPart)
 				local weld = Instance.new("WeldConstraint")
@@ -332,8 +436,10 @@ local SpecialOperations : {Operation}  = {
 
 	},
 	
+	-------------------------------------------------------------------------------
+	
 	{
-		from="LocalScript", to="Script", at="final",
+		from="LocalScript", to="Script", at="editParent",
 		run = function ()
 			return function (instance : LocalScript, new_instance : Script)
 				new_instance.RunContext = Enum.RunContext.Client
@@ -342,18 +448,24 @@ local SpecialOperations : {Operation}  = {
 
 	},
 	
-	{
-		from="SpecialMesh", to="MeshPart", at="finish",
-		run = function()
-			return function (instance : MeshPart, new_instance : MeshPart)
-				warn("TODO")
-				return instance, new_instance
-			end
-		end,
-	},
+	-------------------------------------------------------------------------------
 	
 	{
-		from="MeshPart", to="MeshPart", at="start",
+		from="SpecialMesh", to="MeshPart", at="changeHierarchy",
+		run = function() return function () warn("Convert parent Part instead of SpecialMesh") end end,
+	},
+	
+	-------------------------------------------------------------------------------
+	
+	{
+		from="FileMesh", to="MeshPart", at="changeHierarchy",
+		run = function() return function () warn("Convert parent Part instead of SpecialMesh") end end,
+	},
+	
+	-------------------------------------------------------------------------------
+	
+	{
+		from="MeshPart", to="MeshPart", at="replaceInstance",
 		run = function ()
 			
 			local prompt = require(script.Parent.Parent.MarketPlaceView)
@@ -370,6 +482,25 @@ local SpecialOperations : {Operation}  = {
 				return old, mesh
 			end
 		end
+	},
+	
+	-------------------------------------------------------------------------------
+	
+	{
+		from="Decal", to="SurfaceAppearance", at="editParent",
+		run = function()
+			return function (instance : Decal, new_instance : SurfaceAppearance)
+				new_instance.ColorMap = instance.Texture
+			end
+		end,
+	},
+	{
+		from="Texture", to="SurfaceAppearance", at="editParent",
+		run = function()
+			return function (instance : Texture, new_instance : SurfaceAppearance)
+				new_instance.ColorMap = instance.Texture
+			end
+		end,
 	},
 
 }

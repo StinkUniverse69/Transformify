@@ -1,11 +1,14 @@
-export type ExecutionTime = "start" | "finish"
+export type ExecutionTime = "changeHierarchy" | "replaceInstance" | "editProperties" | "editParent"
 local Reflection = require(script.Parent.Reflection)
 local SPECIAL = require(script.SpecialOperations)
 
+local CollectionService = game:GetService("CollectionService")
+
 local special_operations = {
-	start = {},
-	finish = {},
-	final = {},
+	changeHierarchy = {},
+	replaceInstance = {},
+	editProperties = {},
+	editParent = {},
 	error = function (...) print(...); return ... end,
 	default = function (...) return ... end 
 }
@@ -34,7 +37,7 @@ for _,operation in ipairs(SPECIAL) do
 		error(string.format("Special operation %s->%s has unknown execution time at=\"%s\"", operation.from, operation.to, operation.at))
 	end
 	set(
-		special_operations[operation.at or "start"], 
+		special_operations[operation.at or "replaceInstance"], 
 		operation.from, 
 		operation.to, 
 		operation.run() -- returns a function
@@ -48,8 +51,8 @@ local function convert(instance : Instance, to_class: string) : (Instance, Insta
 	
 	-- do something before the conversion starts	
 	do
-		local start = getSpecialOperation("start", from_class, to_class) -- special operations are the most likely part to fail, so they must be protected
-		local success, old, new = xpcall(start, warn, instance, new_instance)
+		local replaceInstance = getSpecialOperation("replaceInstance", from_class, to_class) -- special operations are the most likely part to fail, so they must be protected
+		local success, old, new = xpcall(replaceInstance, warn, instance, new_instance)
 		if success then instance, new_instance = old, new end 
 	end
 	
@@ -77,8 +80,8 @@ local function convert(instance : Instance, to_class: string) : (Instance, Insta
 	
 	-- do something after most of the conversion has ended
 	do
-		local finish = getSpecialOperation("finish", from_class, to_class)
-		local success, old, new = xpcall(finish, warn, instance, new_instance)
+		local editProperties = getSpecialOperation("editProperties", from_class, to_class)
+		local success, old, new = xpcall(editProperties, warn, instance, new_instance)
 		if success then instance, new_instance = old, new end 
 	end
 	return instance, new_instance
@@ -88,6 +91,15 @@ local function get_property(instance, property) return instance[property] end
 local function setParent(instance, parent) instance.Parent = parent end
 return {
 	run = function (instances : {Instance}, to_class : string)
+		
+		-- do something before the conversion has started
+		-- the new instance is not defined yet and no returns are accepted, meaning these functions are more limited
+		-- however this can be used to efficently delete children
+		for i=1,#instances do
+			local old = instances[i]
+			local changeHierarchy = getSpecialOperation("changeHierarchy", old.ClassName, to_class)
+			xpcall(changeHierarchy, warn, old)
+		end
 		
 		local new_instances = {}
 		local parents = {}
@@ -171,9 +183,11 @@ return {
 		for i=1,#instances do
 			local old = instances[i]
 			local new = new_instances[i]
-				
-			local finish = getSpecialOperation("final", old.ClassName, new.ClassName)
-			xpcall(finish, warn, old, new)
+				 
+			xpcall(
+				getSpecialOperation("editParent", old.ClassName, new.ClassName), warn,
+				old, new
+			)
 		end
 		
 		setParent(keeper, nil)
