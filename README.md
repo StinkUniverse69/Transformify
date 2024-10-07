@@ -1,6 +1,7 @@
-<img align="right" width="250" src="https://assetdelivery.roblox.com/v1/asset/?id=83506458688166" alt="Transformify logo" />
+<img align="right" width="150" src="icon.png" alt="Transformify logo" />
 
-# Transformify
+<h1 align="center">Transformify</h1>
+
 A roblox plugin that allows you to change classes of already created instances.
 
 _Disclaimer: This repository only includes script files. Releases include also include any additional instances such as UI._
@@ -11,9 +12,56 @@ You can either download the plugin from [Roblox]() or our [GitHub Releases](http
 
 ## Useage
 
-Simply select the instances you want to transform and then press the Transformify (Instance Converter) Button in the Plugins tab.
+Simply select the instances you want to transform and then press the _Transformify (Instance Converter)_ Button in the Plugins tab.
+
+## Features
+
+**Convert any Instance into any other**
+
+- blazingly fast conversion even on large instance volumes
+- any properties that can, will be automatically transfered
+- also transfers tags and attributes 
+- uses ChangeHistoryService to make conversions reversable
+- will not change the order of ui elements
+- errors are caught and safely handled, as much as possible of the conversion will still be performed
 
 
+### Special Cases
+Not all instances are automatically be converted into any other as expected, due to the way Roblox is written.
+
+For this reason _Transformify_ implements a variety of addons (called special operations) to cover these cases.
+
+#### MeshPart to MeshPart
+Normally when setting a _MeshId_ the _MeshPart.Size_ will be reset. So _Transformify_ allows you to convert a _MeshPart_ into another, which will open a new window where you can either input a _MeshId_, an _AssetId_ or select a MeshPart/Model from your inventory directly.
+
+#### Part to MeshPart
+Sets the correct _MeshId_ depending on the _ShapeType_ or if there is a _SpecialMesh_ parented to it and corrects the _Size_ among other things. Also inserts a _SurfaceAppearance_ if needed.
+
+#### MeshPart to Part
+Tries to guess the _ShapeType_ of the Mesh, if it fails a _SpecialMesh_ is parented. Also takes _SurfaceAppearances_ into account.
+
+#### Decal to Texture
+Sets the _StudsPerTileU_ and _StudsPerTileV_ so that it looks the same before.
+
+#### Attachment to Part/MeshPart
+Corrects the _CFrame_ to the _Attachment.WorldCFrame_ and welds it to the parent.
+
+#### Part/MeshPart to Attachment
+Sets the _WorldCFrame_ to the Part's.
+
+#### Decal to MeshPart
+Calculates the correct angles for any **Brick Part** and adds _MeshPart_ plains with the decal as surface appearance using the _AlphaMode:Transparency_
+
+More of a demo on what can be done using this system.
+
+#### LocalScript to Script
+Sets the _RunContext_ to Client
+
+#### Decal/Texture to SurfaceAppearance
+Sets the _ColorMap_ to the _Texture_ of the previous.
+
+#### Something missing?
+Feel free to suggest additional special operations.
 
 ## Permissions
 
