@@ -1,6 +1,12 @@
 local this = script.Parent
 local plugin = this.Main.GetPluginManager:Invoke()
 
+local PLUGIN_NAME = this.Name
+local GUI : typeof(script.Parent.Main.ScreenGui) = game.CoreGui[PLUGIN_NAME]
+
+local INPUT_TYPE = Enum.UserInputType
+local KEY = Enum.KeyCode
+
 local InputService = game:GetService("UserInputService")
 
 export type View = {
@@ -51,8 +57,8 @@ function View.new(container : Frame) : View
 	InputService.InputBegan:Connect(function(userInput: InputObject, gameProcessedEvent: boolean)
 		if 
 			view.container.Visible and 
-			userInput.UserInputType	== Enum.UserInputType.Keyboard and
-			userInput.KeyCode		== Enum.KeyCode.Escape
+			userInput.UserInputType	== INPUT_TYPE.Keyboard and
+			userInput.KeyCode		== KEY.Escape
 		then view:close(); return; end
 	end)
 	
@@ -68,22 +74,31 @@ function View.enableDrag(self : View)
 	local container = self.container
 	local topbar = container.TopBar
 	topbar.InputBegan:Connect(function(input: InputObject) 
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		
+		if input.UserInputType == INPUT_TYPE.MouseButton1 then
 			topbar.Active = false
 			local mouse : PluginMouse = plugin:GetMouse()
+			
+			local container_offset = container.AbsoluteSize*container.AnchorPoint
+			local container_position = container.AbsolutePosition
+			
+			local offset_x = container_position.X+container_offset.X - mouse.X
+			local offset_y = container_position.Y+container_offset.Y - mouse.Y
+			
+			local move = task.spawn(function(input: InputObject) -- mouse.Move too unreliable, UserInputService mouse stuff unavailable
+				while task.wait() do
+					
+					-- mouse.Button1Up only fires inside the game window
+					if not game.UserInputService:IsMouseButtonPressed(INPUT_TYPE.MouseButton1) then
+						topbar.Active = true
+						return
+					end
 
-			local offset_x = container.AbsolutePosition.X - mouse.X
-			local offset_y = container.AbsolutePosition.Y - mouse.Y
-
-			local move = mouse.Move:Connect(function()
-				container.Position = UDim2.new(
-					UDim.new((mouse.X + offset_x) / mouse.ViewSizeX, 0),
-					UDim.new((mouse.Y + offset_y) / mouse.ViewSizeY, 0)
-				)
-			end)
-			mouse.Button1Up:Once(function() 
-				move:Disconnect()
-				topbar.Active = true
+					container.Position = UDim2.new(
+						UDim.new((mouse.X + offset_x) / mouse.ViewSizeX, 0),
+						UDim.new((mouse.Y + offset_y) / mouse.ViewSizeY, 0)
+					)
+				end
 			end)
 		end	
 	end)
@@ -107,11 +122,10 @@ function View.registerButton(
 )
 	local view = self
 	button.InputBegan:Connect(function(input: InputObject)
-		local InputType = Enum.UserInputType
 		local input_type = input.UserInputType
 		if 
-			input_type == InputType.MouseButton1 or
-			input_type == InputType.Touch 
+			input_type == INPUT_TYPE.MouseButton1 or
+			input_type == INPUT_TYPE.Touch 
 		then 
 			onInteraction(view, input) 
 		end
@@ -140,16 +154,13 @@ function View.registerTextBox(
 	if onKey then
 		local view = self
 		InputService.InputBegan:Connect(function(userInput: InputObject, gameProcessedEvent: boolean)
-			local InputType = Enum.UserInputType
-			local Key = Enum.KeyCode
-
 			local key = userInput.KeyCode
 			local input_type = userInput.UserInputType
 			
 			if 
 				not view:isVisible() 
 				or not input:IsFocused() 
-				or input_type ~= InputType.Keyboard
+				or input_type ~= INPUT_TYPE.Keyboard
 			then return end
 			
 			(onKey[key] or void)(view)

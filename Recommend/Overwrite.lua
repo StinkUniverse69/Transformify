@@ -14,5 +14,8 @@ return {
 		Model = {
 			Folder = 1000,
 		},
+		MeshPart = {
+			MeshPart = 1000
+		}
 	}
 }

@@ -110,18 +110,22 @@ return {
 		
 		-- check all game instances, if they have properties with Instance values
 		-- if so, add them as interested
-		for _, object in ipairs(game:GetDescendants()) do
-			local class = Reflection[object.ClassName]
-			if not class then continue end -- probably some service
-			
-			for _, property in ipairs(class.InstanceProperties) do -- there are usually 0 or 1 rarely more
-				local success, instance_property = xpcall(get_property, warn, object, property)
-				if not success then continue end
-				
-				local interested_list = interest[instance_property]
-				if interested_list then table.insert(interested_list, {instance = object, property = property}) end
+		for _, service in ipairs(game:GetChildren()) do
+			if service == game.StreamingService then continue end
+			for _, object in ipairs(service:GetDescendants()) do
+				local class = Reflection[object.ClassName]
+				if not class then continue end -- probably some service
+
+				for _, property in ipairs(class.InstanceProperties) do -- there are usually 0 or 1 rarely more
+					local success, instance_property = xpcall(get_property, warn, object, property)
+					if not success then continue end
+
+					local interested_list = interest[instance_property]
+					if interested_list then table.insert(interested_list, {instance = object, property = property}) end
+				end
 			end
 		end
+		
 		
 		-- collect all parents and their order of children
 		for _, instance in ipairs(instances) do
