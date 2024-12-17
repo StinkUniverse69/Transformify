@@ -1,5 +1,6 @@
 export type ExecutionTime = "changeHierarchy" | "replaceInstance" | "editProperties" | "editParent"
 local Reflection = require(script.Parent.Reflection)
+local ReverseHelper = require(script.ReverseHelper)
 local SPECIAL = require(script.SpecialOperations)
 
 local CollectionService = game:GetService("CollectionService")
@@ -193,6 +194,8 @@ return {
 				old, new
 			)
 		end
+		
+		ReverseHelper.add(instances, new_instances)
 		
 		setParent(keeper, nil)
 		
