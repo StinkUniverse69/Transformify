@@ -28,6 +28,8 @@ local function onHistoryEvent(waypoint : string, eventType : "undo" | "redo")
 		if not isPartOfSet[descendant:GetDebugId(math.huge)] then continue end
 		table.insert(set, descendant)
 	end
+	
+	--- TODO : correct layout order
 
 	game.Selection:Set(set)
 end

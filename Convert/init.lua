@@ -2,6 +2,7 @@ export type ExecutionTime = "changeHierarchy" | "replaceInstance" | "editPropert
 local Reflection = require(script.Parent.Reflection)
 local ReverseHelper = require(script.ReverseHelper)
 local SPECIAL = require(script.SpecialOperations)
+local LayoutOrderHelper = require(script.LayoutOrder)
 
 local CollectionService = game:GetService("CollectionService")
 
@@ -59,7 +60,7 @@ local function convert(instance : Instance, to_class: string) : (Instance, Insta
 	
 	new_instance.Name = instance.Name
 	
-	-- set properties that exist in new instance
+	-- set properties that exist in new instance, if they don't pcall will catch the error
 	for _, property in ipairs(Reflection[from_class].Properties) do 
 		pcall(convert_property, property, instance, new_instance)
 	end
@@ -90,6 +91,7 @@ end
 
 local function get_property(instance, property) return instance[property] end
 local function setParent(instance, parent) instance.Parent = parent end
+
 return {
 	run = function (instances : {Instance}, to_class : string)
 		
@@ -102,17 +104,31 @@ return {
 			xpcall(changeHierarchy, warn, old)
 		end
 		
+		local GuiParents = {}
+		if Instance.new(to_class):IsA("GuiBase") then
+			for _, instance in ipairs(instances) do
+				if not instance:IsA("GuiBase") then continue end
+					
+				local parent = instance.Parent
+				if not GuiParents[parent] then
+					local layout = parent:FindFirstChildWhichIsA("UILayout")
+					if not layout then continue end
+					
+					-- assign LayoutOrder based on current implicit order
+					GuiParents[parent] = LayoutOrderHelper.UILayout[layout.ClassName](layout)
+				end
+				
+			end
+		end
+		
 		local new_instances = {}
-		local parents = {}
 		
 		-- reverse map all input instances, so they can be indexed
 		local interest = {}
 		for _, object in ipairs(instances) do interest[object] = {} end
 		
-		-- check all game instances, if they have properties with Instance values
-		-- if so, add them as interested
-		for _, service in ipairs(game:GetChildren()) do
-			if service == game.StreamingService then continue end
+		
+		local function gather_interested_inside(service)
 			for _, object in ipairs(service:GetDescendants()) do
 				local class = Reflection[object.ClassName]
 				if not class then continue end -- probably some service
@@ -126,22 +142,14 @@ return {
 				end
 			end
 		end
-		
-		
-		-- collect all parents and their order of children
-		for _, instance in ipairs(instances) do
-			if Reflection[instance.ClassName].Tags.NotCreatable then continue end
-			
-			local parent = instance.Parent
-			parents[parent] = parent:GetChildren() 
+		-- check all game instances, if they have properties with Instance values
+		-- if one has one of the instances we are converting, add them as interested
+		for _, service in ipairs(game:GetChildren()) do
+			xpcall(gather_interested_inside, warn, service)
 		end
 		
-		-- try converting
-		local function update_property(instance, property, value)
-			instance[property] = value
-		end
-		
-		
+		-- try converting properties
+		local function update_property(instance, property, value) instance[property] = value end
 		for _, instance in ipairs(instances) do
 			if Reflection[instance.ClassName].Tags.NotCreatable then continue end
 			
@@ -157,30 +165,19 @@ return {
 				)
 			end
 			
-			-- in case the instance was a parent
-			parents[new], parents[old] = parents[old], nil
-
-			-- find old instance in it's parents saved children and update it (for later use)
-			local i = table.find(parents[old.Parent], old)
-			parents[old.Parent][i] = new
+			-- old must not be destroyed for the history service to work properly
+			new.Parent, old.Parent = old.Parent, nil
 			table.insert(new_instances, new)
 			
-			old.Parent = nil -- must not be destroyed for the history service to work properly
+			if new:IsA("GuiObject") then
+				LayoutOrderHelper.update(GuiParents[new.Parent], old, new)
+			end
 			
 		end
 		
-		-- restore order of children
-		local keeper = Instance.new("Folder") --required to make ChangeHistoryService work
-		keeper.Parent = workspace
-		
-		for parent, children in pairs(parents) do
-			for _, child in ipairs(children) do
-				pcall(setParent, child, keeper)
-			end
-			
-			for _, child in ipairs(children) do
-				pcall(setParent, child, parent)
-			end
+		-- restore LayoutOrder for gui elements to what it was before the conversion
+		for parent, LayoutOrder in GuiParents do
+			LayoutOrderHelper.restoreLayoutOrder(LayoutOrder, parent)
 		end
 		
 		-- do something after the conversion has ended
@@ -196,8 +193,6 @@ return {
 		end
 		
 		ReverseHelper.add(instances, new_instances)
-		
-		setParent(keeper, nil)
 		
 		return new_instances
 	end,

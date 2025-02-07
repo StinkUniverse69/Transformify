@@ -6,6 +6,8 @@ if not (
 	or game:GetService("RunService"):IsEdit()
 ) then return end
 
+game.ChangeHistoryService:SetEnabled(true)
+
 local this = script.Parent
 local PLUGIN_NAME = this.Name
 

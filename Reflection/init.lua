@@ -101,8 +101,7 @@ local function fillClassFromApi(class : ClassReflection, api_class : ApiClass) :
 		end 
 	end
 	
-	-- adds all properties that can be inherited from superclasses into this class to avoid 
-	-- having to do this at runtime
+	-- adds all properties that can be inherited from superclasses into this class
 	local super : ClassReflection? = Reflection[class.Superclass]
 	if not super then return class end
 
